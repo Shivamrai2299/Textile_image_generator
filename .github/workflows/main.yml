@@ -1,0 +1,98 @@
+name: Deploy to New Azure Storage and VM
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install Azure CLI
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y ca-certificates curl apt-transport-https lsb-release gnupg
+        curl -sL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor | sudo tee /etc/apt/trusted.gpg.d/microsoft.asc.gpg > /dev/null
+        AZ_REPO=$(lsb_release -cs)
+        echo "deb [arch=amd64] https://packages.microsoft.com/repos/azure-cli/ $AZ_REPO main" | sudo tee /etc/apt/sources.list.d/azure-cli.list
+        sudo apt-get update
+        sudo apt-get install -y azure-cli
+
+    - name: Zip project
+      run: zip -r project_new.zip .
+
+    - name: Upload to Azure Storage
+      run: |
+        az storage blob upload -f project_new.zip -c mycontainer -n project_new.zip --account-name ${{ secrets.AZURE_STORAGE_ACCOUNT }} --account-key ${{ secrets.AZURE_STORAGE_KEY }} --overwrite
+
+    - name: Download from Azure Storage
+      run: |
+        az storage blob download -c mycontainer -n project_new.zip -f project_new.zip --account-name ${{ secrets.AZURE_STORAGE_ACCOUNT }} --account-key ${{ secrets.AZURE_STORAGE_KEY }}
+
+    - name: Deploy to New VM
+      run: |
+        echo "${{ secrets.VM_SSH_KEY }}" > vm_key.pem
+        chmod 400 vm_key.pem
+        
+        # Create .ssh directory
+        mkdir -p ~/.ssh
+        
+        # Add the VM to known hosts to avoid host key verification issues
+        ssh-keyscan -H ${{ secrets.VM_IP_ADDRESS }} >> ~/.ssh/known_hosts
+        
+        # Ensure the target directory exists and has the correct permissions
+        ssh -i vm_key.pem ${{ secrets.VM_USERNAME }}@${{ secrets.VM_IP_ADDRESS }} << 'EOF'
+        # sudo mkdir -p /home/testuserclaw/claw
+        sudo chown -R $USER:$USER /home/testuserclaw/claw
+        # sudo chown -R testuserclaw@gmail.com:testuserclaw@gmail.com /home/testuserclaw/claw/Textile_Design_Generator
+        sudo chmod 770 /home/testuserclaw/claw/Textile_Design_Generator
+        sudo apt-get update
+        sudo apt-get install -y unzip acl
+        sudo mkdir -p /home/testuserclaw/claw/Textile_Design_Generator 
+        sudo chown -R $USER:$USER /home/testuserclaw/claw/Textile_Design_Generator 
+        EOF
+        
+        # Copy the ZIP file to the new VM
+        scp -i vm_key.pem project_new.zip ${{ secrets.VM_USERNAME }}@${{ secrets.VM_IP_ADDRESS }}:/home/testuserclaw/claw/Textile_Design_Generator
+        
+        # SSH into the new VM, unzip files, delete ZIPs, set permissions on token.json, and start the application
+        ssh -i vm_key.pem ${{ secrets.VM_USERNAME }}@${{ secrets.VM_IP_ADDRESS }} << 'EOF' 
+        cd /home/testuserclaw/claw/Textile_Design_Generator
+        unzip -o project_new.zip || { echo "Unzip failed"; exit 1; }
+        rm project_new.zip
+        
+        # Set full permissions for bot files:
+        # sudo setfacl -R -d -m u:testuserclaw@gmail.com:rwx   /home/testuserclaw/claw/Textile_Design_Generator 
+        # sudo chown -R testuserclaw@gmail.com:testuserclaw@gmail.com /home/testuserclaw/claw/Textile_Design_Generator
+
+        
+        rm -rf T_D_G_venv
+        python3 -m venv T_D_G_venv
+        source T_D_G_venv/bin/activate
+        pip install -r requirements.txt
+
+        if [ -f textile_api_server.py ]; then
+          chmod +x  textile_api_server.py Textile_Design_Generator.py
+          chmod +x /home/testuserclaw/claw/Textile_Design_Generator/T_D_G_script.sh
+          sudo systemctl stop Textile_Design_Generator.service || echo "Textile_Design_Generator.service not loaded"
+          sudo systemctl daemon-reload
+          sudo systemctl enable Textile_Design_Generator.service || echo "Textile_Design_Generator.service not found"
+          sudo systemctl start Textile_Design_Generator.service || echo "Textile_Design_Generator.service not found"
+        else
+          echo "Textile_Design_Generator.py not found"
+        fi
+        EOF
+      env:
+        AZURE_STORAGE_KEY: ${{ secrets.AZURE_STORAGE_KEY }}
+        AZURE_STORAGE_ACCOUNT: ${{ secrets.AZURE_STORAGE_ACCOUNT }}
+        VM_SSH_KEY: ${{ secrets.VM_SSH_KEY }}
+        VM_IP_ADDRESS: ${{ secrets.VM_IP_ADDRESS }}
+        VM_USERNAME: ${{ secrets.VM_USERNAME }}

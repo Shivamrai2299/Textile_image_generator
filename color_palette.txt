@@ -1,0 +1,12 @@
+Index | Hex Code | Approx. Name | % of Image
+--------------------------------------------------
+0 | #ede6d5 | antiquewhite | 50.17%
+1 | #bf7359 | indianred | 14.95%
+2 | #3f5a65 | darkslategray | 12.54%
+3 | #304149 | darkslategray | 6.14%
+4 | #e3d9c5 | lightgray | 5.29%
+5 | #936555 | sienna | 3.22%
+6 | #62504b | dimgray | 3.00%
+7 | #c1b7a8 | silver | 1.66%
+8 | #667171 | dimgray | 1.61%
+9 | #95948c | gray | 1.42%
